@@ -1,0 +1,86 @@
+---
+# The main playbook, the responsible orchestrator
+
+# Phase 1: Hypervisor Infra Provisioning
+- name: "Phase 1: Provision Hypervisor Platform & Web console"
+  hosts: kvm_hosts
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    # Verify that the control machine is running ansible 2.15 or newer
+    - name: Verify minimum Ansible control node version
+      ansible.builtin.assert:
+        that:
+          - ansible_version.full is version('2.15', '>=')
+        fail_msg: "Ansible version {{ ansible_version.full }} is too old."
+        success_msg: "Ansible version {{ ansible_version.full }} is OK"
+      run_once: true
+
+    # Display an informative deployment start banner in terminal logs
+    - name: Display Deployment start notification
+      ansible.builtin.debug:
+        msg: "Starting hypervisor deployment on {{ inventory_hostname }} ({{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }})"
+
+  tasks:
+    # Execute rhel_kvm to configure QEMU/Libvirt daemons, storage pools and network bridge
+    - name: Apply KVM Hypervisor Provisioning Role
+      ansible.builtin.include_role:
+        name: rhel_kvm
+      when: enable_kvm | bool
+
+    # Execute the rhel_cockpit to deploy cockpit web console with VM management on port 9090
+    - name: Apply Cockpit Web Console Management Role
+      ansible.builtin.include_role:
+        name: rhel_cockpit
+      when: enable_cockpit | bool
+
+# Phase 2:  CIS Benchmark Level 1 Security Hardening
+- name: "Phase 2: Apply CIS Benchmark Level 1 Security Hardening"
+  hosts: cis
+  become: true
+  gather_facts: true
+
+  tasks:
+    # Applies Ansible Lockdown RHEL 9 CIS Level 1 Benchmark on RHEL/AlmaLinux 9 hosts
+    - name: Execute RHEL 9 CIS Benchmark Level 1 Hardening
+      ansible.builtin.include_role:
+        name: rhel9_cis
+      when: ansible_facts['distribution_major_version'] == '9'
+
+    # Applies Ansible Lockdown RHEL 10 CIS Level 1 Benchmark on RHEL/AlmaLinux 10 hosts
+    - name: Execute RHEL 10 CIS Benchmark Level 1 Hardening
+      ansible.builtin.include_role:
+        name: rhel10_cis
+      when: ansible_facts['distribution_major_version'] == '10'
+
+# Phase 3: Post-deployment Compliance & Functional validation
+- name: "Phase 3: Post-Deployment Verification & Security"
+  hosts: kvm_hosts
+  become: true
+  gather_facts: false
+  post_tasks:
+
+    # Step 1: Executes the Python hypervisor verification script deployed on the host
+    - name: Run automated hypervisor acceptance test script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/verify_hypervisor.py
+      register: hypervisor_test_report
+      changed_when: false
+      failed_when: false
+
+    # Step 2: Displays the test report directly in the Ansible terminal summary
+    - name: Display Hypervisor Compliance Report
+      ansible.builtin.debug:
+        var: hypervisor_test_report.stdout_lines
+
+    # Step 3: Enforces CIS compliance by expiring the root password to require a reset on next login
+    - name: Force password expiry for root account
+      ansible.builtin.command:
+        cmd: chage -d 0 root
+      changed_when: true
+
+    # Step 4: Displays deployment completion notice
+    - name: Display deployment success notice
+      ansible.builtin.debug:
+        msg: " Hypervisor Provisioning, CIS Hardening, and Security Expiry completed successfully on {{ inventory_hostname }}!"

@@ -1,0 +1,4 @@
+---
+# toggle on/off variables on the kvm host default false
+enable_kvm: false
+enable_cockpit: false

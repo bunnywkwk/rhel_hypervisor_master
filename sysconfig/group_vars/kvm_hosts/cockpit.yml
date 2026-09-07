@@ -1,0 +1,3 @@
+---
+# enabling the cockpit on kvm host, overriding the false on the all.yml
+enable_cockpit: true

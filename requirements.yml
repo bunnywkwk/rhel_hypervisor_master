@@ -1,0 +1,31 @@
+---
+# rhel_hypervisor_master - Ansible Galaxy Requirements
+
+roles:
+  # Standalone Custom Roles
+  - name: rhel_kvm
+    src: https://github.com/bunnywkwk/rhel_kvm.git
+    scm: git
+    version: main
+
+  - name: rhel_cockpit
+    src: https://github.com/bunnywkwk/rhel_cockpit.git
+    scm: git
+    version: main
+
+  # Upstream Ansible Lockdown CIS Roles (Pinned to release tags)
+  - name: rhel9_cis
+    src: https://github.com/ansible-lockdown/RHEL9-CIS.git
+    scm: git
+    version: 2.4.0
+
+  - name: rhel10_cis
+    src: https://github.com/ansible-lockdown/RHEL10-CIS.git
+    scm: git
+    version: 1.1.0
+
+collections:
+  - name: ansible.posix
+  - name: community.general
+  - name: community.libvirt
+  - name: ansible.utils

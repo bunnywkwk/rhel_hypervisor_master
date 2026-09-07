@@ -1,0 +1,97 @@
+---
+# ==============================================================================
+# CIS Hardening Variables — RHEL 9 (Level 1 Server Profile Only)
+# ==============================================================================
+
+# 1. Enforce Level 1 Benchmark Only (Disable Level 2)
+rhel9cis_level_1: true
+rhel9cis_level_2: false
+
+# 2. General Safety & Environment Settings
+rhel9cis_disruption_high: false
+rhel9cis_authselect_custom_profile_name: rhel9_hardened_profile
+
+# 3. Hypervisor Networking & Virtual Switch Protection
+rhel9cis_sysctl_net_ipv4_ip_forward: 1
+rhel9cis_rule_3_1_1: false # Prevents CIS from disabling net.ipv4.ip_forward
+
+# 4. Web Console & Management Protection
+rhel9cis_firewalld_services:
+  - ssh
+  - cockpit
+rhel9cis_allow_cockpit: true
+rhel9cis_sshd_allowusers: "frqadmin"
+
+# 5. Virtualization Kernel Driver Whitelist
+rhel9cis_whitelist_kernel_modules:
+  - kvm
+  - kvm_intel
+  - kvm_amd
+  - vhost_net
+  - tun
+
+# 6. Explicitly Disable ALL Level 2 Rules (Server + Workstation: 64 Rules)
+rhel9cis_rule_1_1_1_6: false
+rhel9cis_rule_1_1_1_7: false
+rhel9cis_rule_1_1_1_8: false
+rhel9cis_rule_1_1_2_3_1: false
+rhel9cis_rule_1_1_2_4_1: false
+rhel9cis_rule_1_1_2_5_1: false
+rhel9cis_rule_1_1_2_6_1: false
+rhel9cis_rule_1_1_2_7_1: false
+rhel9cis_rule_1_3_1_5: false
+rhel9cis_rule_1_8_1: false
+rhel9cis_rule_1_8_6: false
+rhel9cis_rule_1_8_7: false
+rhel9cis_rule_2_1_1: false
+rhel9cis_rule_2_1_2: false
+rhel9cis_rule_2_1_20: false
+rhel9cis_rule_2_2_2: false
+rhel9cis_rule_3_1_3: false
+rhel9cis_rule_3_2_1: false
+rhel9cis_rule_3_2_2: false
+rhel9cis_rule_3_2_3: false
+rhel9cis_rule_3_2_4: false
+rhel9cis_rule_5_1_10: false
+rhel9cis_rule_5_1_11: false
+rhel9cis_rule_5_2_4: false
+rhel9cis_rule_5_3_3_1_3: false
+rhel9cis_rule_5_4_1_2: false
+rhel9cis_rule_5_4_3_1: false
+rhel9cis_rule_6_3_1_1: false
+rhel9cis_rule_6_3_1_2: false
+rhel9cis_rule_6_3_1_3: false
+rhel9cis_rule_6_3_1_4: false
+rhel9cis_rule_6_3_2_1: false
+rhel9cis_rule_6_3_2_2: false
+rhel9cis_rule_6_3_2_3: false
+rhel9cis_rule_6_3_2_4: false
+rhel9cis_rule_6_3_3_1: false
+rhel9cis_rule_6_3_3_2: false
+rhel9cis_rule_6_3_3_3: false
+rhel9cis_rule_6_3_3_4: false
+rhel9cis_rule_6_3_3_5: false
+rhel9cis_rule_6_3_3_6: false
+rhel9cis_rule_6_3_3_7: false
+rhel9cis_rule_6_3_3_8: false
+rhel9cis_rule_6_3_3_9: false
+rhel9cis_rule_6_3_3_10: false
+rhel9cis_rule_6_3_3_11: false
+rhel9cis_rule_6_3_3_12: false
+rhel9cis_rule_6_3_3_13: false
+rhel9cis_rule_6_3_3_14: false
+rhel9cis_rule_6_3_3_15: false
+rhel9cis_rule_6_3_3_16: false
+rhel9cis_rule_6_3_3_17: false
+rhel9cis_rule_6_3_3_18: false
+rhel9cis_rule_6_3_3_19: false
+rhel9cis_rule_6_3_3_20: false
+rhel9cis_rule_6_3_3_21: false
+rhel9cis_rule_6_3_4_1: false
+rhel9cis_rule_6_3_4_2: false
+rhel9cis_rule_6_3_4_5: false
+rhel9cis_rule_6_3_4_6: false
+rhel9cis_rule_6_3_4_7: false
+rhel9cis_rule_6_3_4_8: false
+rhel9cis_rule_6_3_4_9: false
+rhel9cis_rule_6_3_4_10: false
