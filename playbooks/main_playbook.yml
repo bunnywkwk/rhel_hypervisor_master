@@ -60,7 +60,6 @@
   become: true
   gather_facts: false
   post_tasks:
-
     # Step 1: Executes the Python hypervisor verification script deployed on the host
     - name: Run automated hypervisor acceptance test script
       ansible.builtin.command:
@@ -74,13 +73,26 @@
       ansible.builtin.debug:
         var: hypervisor_test_report.stdout_lines
 
-    # Step 3: Enforces CIS compliance by expiring the root password to require a reset on next login
+    # Step 3: Executes the Python Cockpit verification script deployed on the host
+    - name: Run automated Cockpit acceptance test script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/verify_cockpit.py
+      register: cockpit_test_report
+      changed_when: false
+      failed_when: false
+
+    # Step 4: Displays the Cockpit test report directly in the Ansible terminal summary
+    - name: Display Cockpit Compliance Report
+      ansible.builtin.debug:
+        var: cockpit_test_report.stdout_lines
+
+    # Step 5: Enforces CIS compliance by expiring the root password to require a reset on next login
     - name: Force password expiry for root account
       ansible.builtin.command:
         cmd: chage -d 0 root
       changed_when: true
 
-    # Step 4: Displays deployment completion notice
+    # Step 6: Displays deployment completion notice
     - name: Display deployment success notice
       ansible.builtin.debug:
-        msg: " Hypervisor Provisioning, CIS Hardening, and Security Expiry completed successfully on {{ inventory_hostname }}!"
+        msg: "Hypervisor Provisioning, CIS Hardening, and Security Expiry completed successfully on {{ inventory_hostname }}!"

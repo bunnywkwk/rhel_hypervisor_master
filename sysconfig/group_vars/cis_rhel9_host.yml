@@ -1,36 +1,34 @@
 ---
-# ==============================================================================
 # CIS Hardening Variables — RHEL 9 (Level 1 Server Profile Only)
+
+# ==============================================================================
+# KVM HYPERVISOR & COCKPIT PROTECTION OVERRIDES
+# These overrides are CRITICAL to prevent the CIS hardening role from destroying
+# the KVM virtualization stack and the Cockpit web console.
 # ==============================================================================
 
-# 1. Enforce Level 1 Benchmark Only (Disable Level 2)
-rhel9cis_level_1: true
-rhel9cis_level_2: false
+# 1. COCKPIT WEB CONSOLE
+# CIS Rule 2.1.3 typically uninstalls and masks cockpit to reduce attack surface.
+# We set server to true (keep package) and mask to false (allow service to run).
+rhel9cis_cockpit_server: true
+rhel9cis_cockpit_mask: false
 
-# 2. General Safety & Environment Settings
-rhel9cis_disruption_high: false
-rhel9cis_authselect_custom_profile_name: rhel9_hardened_profile
+# 2. VIRTUAL NETWORKING (DNSMASQ)
+# CIS Rule 2.1.5 uninstalls dnsmasq. However, libvirt STRICTLY requires dnsmasq
+# to provide DHCP/DNS to your virtual machines on the virbr0 bridge network!
+rhel9cis_dnsmasq_server: true
+rhel9cis_dnsmasq_mask: false
 
-# 3. Hypervisor Networking & Virtual Switch Protection
-rhel9cis_sysctl_net_ipv4_ip_forward: 1
-rhel9cis_rule_3_1_1: false # Prevents CIS from disabling net.ipv4.ip_forward
-
-# 4. Web Console & Management Protection
-rhel9cis_firewalld_services:
-  - ssh
-  - cockpit
-rhel9cis_allow_cockpit: true
+# throw and error wherein if you did not specify your own authselect profile
+rhel9cis_authselect_custom_profile_name: "rhel9"
 rhel9cis_sshd_allowusers: "frqadmin"
 
-# 5. Virtualization Kernel Driver Whitelist
-rhel9cis_whitelist_kernel_modules:
-  - kvm
-  - kvm_intel
-  - kvm_amd
-  - vhost_net
-  - tun
-
-# 6. Explicitly Disable ALL Level 2 Rules (Server + Workstation: 64 Rules)
+# ==============================================================================
+# USER-DEFINED EXEMPTIONS (Disabled Rules)
+# Note: These rules are 'true' by default in the CIS role. Setting them to 'false'
+# here is required if you intentionally want to bypass them.
+# ==============================================================================
+rhel9cis_disruption_high: false
 rhel9cis_rule_1_1_1_6: false
 rhel9cis_rule_1_1_1_7: false
 rhel9cis_rule_1_1_1_8: false
@@ -39,7 +37,9 @@ rhel9cis_rule_1_1_2_4_1: false
 rhel9cis_rule_1_1_2_5_1: false
 rhel9cis_rule_1_1_2_6_1: false
 rhel9cis_rule_1_1_2_7_1: false
+rhel9cis_rule_1_2_1_3: false
 rhel9cis_rule_1_3_1_5: false
+rhel9cis_rule_1_3_1_6: false
 rhel9cis_rule_1_8_1: false
 rhel9cis_rule_1_8_6: false
 rhel9cis_rule_1_8_7: false
@@ -89,6 +89,8 @@ rhel9cis_rule_6_3_3_20: false
 rhel9cis_rule_6_3_3_21: false
 rhel9cis_rule_6_3_4_1: false
 rhel9cis_rule_6_3_4_2: false
+rhel9cis_rule_6_3_4_3: false
+rhel9cis_rule_6_3_4_4: false
 rhel9cis_rule_6_3_4_5: false
 rhel9cis_rule_6_3_4_6: false
 rhel9cis_rule_6_3_4_7: false

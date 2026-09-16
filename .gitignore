@@ -1,0 +1,6 @@
+# Ansible temporary files and retry files
+.ansible/
+ansible.cfg
+
+roles/
+
