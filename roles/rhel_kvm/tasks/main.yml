@@ -16,7 +16,7 @@
 # Step 4: Configures net.ipv4.ip_forward in sysctl so VMs can route network packets
 - name: Configure kernel sysctl parameters for KVM
   ansible.builtin.include_tasks: sysctl.yml
-  when: kvm_manage_sysctl | bool
+  when: rhel_kvm_manage_sysctl | bool
 
 # Step 5: Activates monolithic daemons on RHEL 9 or modular socket units on RHEL 10
 - name: Configure libvirt daemons and socket activation
@@ -34,12 +34,3 @@
 - name: Configure administrative user access
   ansible.builtin.include_tasks: users.yml
 
-# Step 9: Deploys automated hypervisor verification scripts to /usr/local/bin
-- name: Deploy hypervisor acceptance verification tools
-  ansible.builtin.copy:
-    src: verify_hypervisor.py
-    dest: /usr/local/bin/verify_hypervisor.py
-    owner: root
-    group: root
-    mode: "0755"
-  when: kvm_deploy_verification_tools | default(true) | bool

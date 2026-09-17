@@ -10,7 +10,7 @@ This document provides deep-dive explanations and answers to core architectural 
 ### Q1: What does "Keep CIS variables separate from role variables" mean?
 
 - **A**:
-  - **Role Variables (`kvm.yml`, `cockpit.yml`)**: Configure our custom infrastructure roles (`rhel_kvm`, `rhel_cockpit`). E.g., `kvm_storage_pools`, `cockpit_port: 9090`.
+  - **Role Variables (`kvm.yml`, `cockpit.yml`)**: Configure our custom infrastructure roles (`rhel_kvm`, `rhel_cockpit`). E.g., `rhel_kvm_storage_pools`, `rhel_cockpit_port: 9090`.
   - **CIS Variables (`cis_rhel9_hosts.yml`, `cis_rhel10_hosts.yml`)**: Configure the 3rd-party Ansible Lockdown security baseline (`rhel9cis_*`, `rhel10cis_*`). E.g., `rhel9cis_level_1: true`, `rhel9cis_rule_3_1_1: false`.
   - **CIS Variables (`cis_rhel9_host.yml`, `cis_rhel10_host.yml`)**: Configure the 3rd-party Ansible Lockdown security baseline (`rhel9cis_*`, `rhel10cis_*`). E.g., `rhel9cis_level_1: true`, `rhel9cis_rule_3_1_1: false`.
   - **Why separate them**:
