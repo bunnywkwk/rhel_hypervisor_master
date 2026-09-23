@@ -23,6 +23,14 @@ rhel9cis_dnsmasq_mask: false
 rhel9cis_authselect_custom_profile_name: "rhel9"
 rhel9cis_sshd_allowusers: "frqadmin"
 
+# 3. PAM FAILLOCK (Account Lockout) — Fully Disabled
+# Disabling the module itself (5.3.2.2) plus its three config controls so no
+# failed-login lockout is applied to any account, admin included.
+rhel9cis_rule_5_3_2_2: false # Ensure pam_faillock module is enabled
+rhel9cis_rule_5_3_3_1_1: false # Ensure password failed attempts lockout is configured (deny=)
+rhel9cis_rule_5_3_3_1_2: false # Ensure password unlock time is configured
+rhel9cis_rule_5_3_3_1_3: false # Ensure password failed attempts lockout includes root account
+
 # ==============================================================================
 # USER-DEFINED EXEMPTIONS (Disabled Rules)
 # Note: These rules are 'true' by default in the CIS role. Setting them to 'false'
@@ -55,7 +63,6 @@ rhel9cis_rule_3_2_4: false
 rhel9cis_rule_5_1_10: false
 rhel9cis_rule_5_1_11: false
 rhel9cis_rule_5_2_4: false
-rhel9cis_rule_5_3_3_1_3: false
 rhel9cis_rule_5_4_1_2: false
 rhel9cis_rule_5_4_3_1: false
 rhel9cis_rule_6_3_1_1: false

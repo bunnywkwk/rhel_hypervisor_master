@@ -8,7 +8,7 @@ An enterprise master orchestration repository to provision, configure, and harde
 
 This orchestrator coordinates custom standalone roles alongside upstream Ansible Lockdown security baselines:
 
-1. **`rhel_kvm`**: Provisions QEMU/KVM, manages version-specific Libvirt daemons (Monolithic on RHEL 9 vs. Modular on RHEL 10), sets up storage pools with SELinux `virt_image_t`, configures bridged networking, and enforces IP forwarding routing.
+1. **`rhel_kvm`**: Provisions QEMU/KVM, manages version-specific Libvirt daemons (Monolithic `libvirtd` on RHEL 9, required, vs. Modular `virtqemud`/etc. on RHEL 10), sets up storage pools with SELinux `virt_image_t`, configures bridged networking, and enforces IP forwarding routing.
 2. **`rhel_cockpit`**: Deploys the Cockpit Web Console with `cockpit-machines` on TCP port `9090`, enforces a headless server design (no desktop GUI), and configures systemd socket activation.
 3. **`rhel9_cis` / `rhel10_cis`**: Applies 200+ CIS Benchmark Level 1 controls using pinned releases from `ansible-lockdown`, customized with surgical variable overrides so hypervisor routing and Cockpit web management remain 100% operational.
 

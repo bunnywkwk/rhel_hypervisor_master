@@ -27,13 +27,23 @@
     - name: Apply KVM Hypervisor Provisioning Role
       ansible.builtin.include_role:
         name: rhel_kvm
+        apply:
+          tags:
+            - rhel_kvm
       when: enable_kvm | bool
+      tags:
+        - rhel_kvm
 
     # Execute the rhel_cockpit to deploy cockpit web console with VM management on port 9090
     - name: Apply Cockpit Web Console Management Role
       ansible.builtin.include_role:
         name: rhel_cockpit
+        apply:
+          tags:
+            - rhel_cockpit
       when: enable_cockpit | bool
+      tags:
+        - rhel_cockpit
 
 # Phase 2: CIS Benchmark Level 1 Security Hardening
 - name: "Phase 2: Apply CIS Benchmark Level 1 Security Hardening"
