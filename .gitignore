@@ -2,5 +2,5 @@
 .ansible/
 ansible.cfg
 
-roles/
+roles/*
 
