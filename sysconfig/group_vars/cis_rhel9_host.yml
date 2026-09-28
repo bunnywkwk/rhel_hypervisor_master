@@ -2,22 +2,15 @@
 # CIS Hardening Variables — RHEL 9 (Level 1 Server Profile Only)
 
 # ==============================================================================
-# KVM HYPERVISOR & COCKPIT PROTECTION OVERRIDES
-# These overrides are CRITICAL to prevent the CIS hardening role from destroying
-# the KVM virtualization stack and the Cockpit web console.
+# KVM HYPERVISOR PROTECTION OVERRIDE
+# Prevents the CIS hardening role from destroying the KVM virtualization stack.
+# (The RHEL 9 CIS role has no Cockpit rule, so Cockpit needs no override here.)
 # ==============================================================================
 
-# 1. COCKPIT WEB CONSOLE
-# CIS Rule 2.1.3 typically uninstalls and masks cockpit to reduce attack surface.
-# We set server to true (keep package) and mask to false (allow service to run).
-rhel9cis_cockpit_server: true
-rhel9cis_cockpit_mask: false
-
-# 2. VIRTUAL NETWORKING (DNSMASQ)
+# VIRTUAL NETWORKING (DNSMASQ)
 # CIS Rule 2.1.5 uninstalls dnsmasq. However, libvirt STRICTLY requires dnsmasq
 # to provide DHCP/DNS to your virtual machines on the virbr0 bridge network!
 rhel9cis_dnsmasq_server: true
-rhel9cis_dnsmasq_mask: false
 
 # throw and error wherein if you did not specify your own authselect profile
 rhel9cis_authselect_custom_profile_name: "rhel9"
@@ -36,7 +29,6 @@ rhel9cis_rule_5_3_3_1_3: false # Ensure password failed attempts lockout include
 # Note: These rules are 'true' by default in the CIS role. Setting them to 'false'
 # here is required if you intentionally want to bypass them.
 # ==============================================================================
-rhel9cis_disruption_high: false
 rhel9cis_rule_1_1_1_6: false
 rhel9cis_rule_1_1_1_7: false
 rhel9cis_rule_1_1_1_8: false

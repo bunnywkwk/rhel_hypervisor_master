@@ -1,93 +1,113 @@
-# Hypervisor Provisioning: Lessons Learned & Fixes
+# Lessons Learned & Fixes
 
-This document records the critical configuration fixes, security exemptions, and architectural decisions discovered during the successful deployment of the RHEL 9 and RHEL 10 CIS-hardened KVM hypervisors.
+Problems hit while building the CIS-hardened RHEL 9 / RHEL 10 KVM hypervisors, and how each was fixed. Each item: **Problem → Cause → Fix**.
 
-## 1. The "KVM Shield" (CIS Hardening Overrides)
+| # | Problem (short) | Fix (short) |
+| :- | :--- | :--- |
+| 1 | CIS removes Cockpit / dnsmasq | Exempt them in `cis_rhelX_host.yml` |
+| 2 | CIS sets `ip_forward = 0` | Our `99-kvm.conf` overrides it |
+| 3 | Ansible hangs via jump host | `ssh-copy-id` through the jump host |
+| 4 | Network/pool not autostarting | Separate "autostart" task |
+| 5 | RHEL 10: GPG key error on install | Update `redhat-release` first |
+| 6 | RHEL 9 libvirt setup | Keep it simple: enable and start `libvirtd` only |
+| 7 | `virsh` shows nothing / false failures | Run checks with `sudo` or a login shell |
+| 8 | dnf fails: `epel` has no baseurl | Fix the Zabbix role that created it |
+| 9 | Clock wrong after VM rollback | `chronyc makestep` |
+| 10 | Failed-login lockout | Disabled on purpose |
+| 11 | `--tags` ran nothing | Add `apply: tags:` |
+| 12 | Cockpit settings that did nothing | Removed; only `[Session] IdleTimeout` kept |
 
-During Phase 2, the CIS Benchmark roles aggressively secure the host by deleting unapproved packages and blacklisting unused kernel modules. Without surgical overrides, the CIS role will physically destroy a working hypervisor.
+---
 
-We implemented critical exemptions in `cis_rhel9_host.yml` and `cis_rhel10_host.yml` to act as a "KVM Shield":
+## 1. CIS Would Break the Hypervisor
+**Cause:** CIS removes "unneeded" packages.
+**Fix:**
+- **dnsmasq** (both OSes): `rhelXcis_dnsmasq_server: true` in `cis_rhel9_host.yml` / `cis_rhel10_host.yml`. Libvirt needs `dnsmasq` to give VMs IPs.
+- **Cockpit on RHEL 10:** the CIS rule that removes it (2.1.3) is switched off with `rhel10cis_rule_2_1_3: false`. `rhel10cis_cockpit_server: true` is also set but is redundant while that rule is off.
+- **Cockpit on RHEL 9:** nothing to do. The RHEL 9 CIS role has no Cockpit rule at all (no `rhel9cis_cockpit_*` variables exist), so those two lines were removed from `cis_rhel9_host.yml`.
 
-- **Cockpit Survival**: `rhelXcis_cockpit_server: true` prevents the CIS role from running `dnf remove cockpit`.
-- **DNS/DHCP Survival**: `rhelXcis_dnsmasq_server: true` prevents the CIS role from uninstalling `dnsmasq`, which is strictly required by `libvirt` for the `virbr0` network bridge to assign IPs to VMs.
+Only set variables that exist in the role's `defaults/`. Check with `grep -rn <variable> roles/<cis_role>/defaults`.
 
-## 2. Sysctl IP Forwarding Resilience
+## 2. IP Forwarding
+**Problem:** VMs need `net.ipv4.ip_forward = 1`; CIS writes `0` to `/etc/sysctl.d/60-netipv4_sysctl.conf`.
+**Fix:** The `rhel_kvm` role writes `/etc/sysctl.d/99-kvm.conf`. Files load in order, so `99` beats `60`.
+**Checked:** on both hardened hosts `sysctl net.ipv4.ip_forward` = `1`.
 
-Virtual machines require `net.ipv4.ip_forward = 1` for NAT internet routing.
+## 3. SSH Through the Jump Host
+**Problem:** Ansible hangs on hosts behind the jump host.
+**Fix:** Copy the key through it: `ssh-copy-id -o ProxyJump=frqadmin@192.168.10.160 frqadmin@<target-ip>`
 
-- The CIS role (Rule 3.3.1.x) attempts to drop a configuration file (`/etc/sysctl.d/60-netipv4_sysctl.conf`) enforcing `0`.
-- Instead of fighting the CIS role directly, the `rhel_kvm` role writes its configuration to `/etc/sysctl.d/99-kvm.conf`.
-- **Precedence Victory**: Because `99` is processed after `60`, the KVM role naturally steamrolls the CIS restriction upon every boot. The hypervisor natively self-heals its routing configuration, rendering the CIS rule functionally irrelevant without breaking compliance logic.
+## 4. Network / Pool Not Coming Back After Reboot
+**Symptom:** Play succeeded, but after reboot `kvm_br0` showed `inactive` and `Autostart: no`.
+**Cause:** In `community.libvirt.virt_net` / `virt_pool`, `autostart` is ignored when it is in the same task as `state`.
+**Fix:** Three separate tasks: define (`present`) → start (`active`) → `autostart`. In `tasks/networks.yml` and `tasks/storage.yml`.
 
-## 3. End-to-End SSH ProxyJump Configuration
-
-When provisioning a private hypervisor (e.g., `192.168.20.40`) through a Jump Host (`192.168.10.160`), the Ansible Control Node requires end-to-end key authentication.
-
-- The SSH key must be copied _through_ the jump host to the target:
-  ```bash
-  ssh-copy-id -o ProxyJump=frqadmin@192.168.10.160 frqadmin@192.168.20.40
-  ```
-- This allows Ansible to authenticate directly to the target VM transparently, avoiding SSH timeouts or hanging tasks (which surface as 100% idle `top` graphs on the target).
-
-## 4. Libvirt Ansible Module Idempotence
-
-The `community.libvirt.virt_pool` and `community.libvirt.virt_net` modules have strict lifecycle requirements:
-
-- You **cannot** use `state: active` on a resource that doesn't exist yet.
-- The architecture requires splitting the tasks:
-  1. `state: present` (Defines the XML configuration).
-  2. `state: active` (Starts the defined configuration).
-  3. `autostart: true` (Ensures it boots with the host).
-
-## 5. RHEL 10 Beta GPG Keys
-
-Early RHEL 10 Beta ISOs shipped with a broken initial keyring where RPM signatures failed validation during DNF operations.
-
-- **The Fix**: Manually run `sudo dnf update redhat-release` on the target host before provisioning. This lays down the newer Red Hat Release Key 4 and resolves the signature mismatch, allowing Ansible's DNF module to install virtualization packages smoothly.
-
-## 6. RHEL 9 Modular Daemons Silently Winning Over `libvirtd`
-
-**Requirement**: RHEL 9 must run monolithic `libvirtd`. This is a fixed project requirement, not a preference — do not change `rhel_kvm_daemon_model` on RHEL 9 to modular to work around the issues below; fix the URI instead (item #7).
-
-On a RHEL 9.8 host in the field, `systemctl status libvirtd` showed `inactive (dead)` while `virtqemud`, `virtnetworkd`, and `virtstoraged` were all `active running` — even `libvirtd.socket` itself was `inactive dead`, so nothing would ever wake `libvirtd` back up.
-
-- **Root cause**: `vars/RedHat-9.yml` started `libvirtd` correctly but never masked the modular daemon set (it only had an unused, empty `rhel_kvm_disabled_sockets: []`). RHEL 9.8's own systemd presets bring `virtqemud`/`virtnetworkd`/`virtstoraged` up on their own, and since both daemon families ship on RHEL 9, the modular set wins the default `qemu:///system` connection out from under the never-masked `libvirtd`.
-- **The Fix**: `vars/RedHat-9.yml` now sets `rhel_kvm_disabled_services` to the full modular daemon list (services + sockets for `virtqemud`, `virtnetworkd`, `virtstoraged`, `virtnodedevd`, `virtsecretd`, `virtnwfilterd`), same shape as how `RedHat-10.yml` masks legacy `libvirtd` units. `tasks/daemons.yml` needed no changes — it already loops over `rhel_kvm_disabled_services` generically. This alone gets `systemctl status libvirtd` looking correct, but is not the full fix — see item #7.
-- **Manual remediation** on an already-drifted host:
-  ```bash
-  sudo systemctl disable --now virtqemud.service virtqemud.socket virtqemud-ro.socket virtqemud-admin.socket \
-    virtnetworkd.service virtnetworkd.socket virtnetworkd-ro.socket virtnetworkd-admin.socket \
-    virtstoraged.service virtstoraged.socket virtstoraged-ro.socket virtstoraged-admin.socket \
-    virtnodedevd.service virtnodedevd.socket virtnodedevd-ro.socket virtnodedevd-admin.socket \
-    virtsecretd.service virtsecretd.socket virtsecretd-ro.socket virtsecretd-admin.socket \
-    virtnwfilterd.service virtnwfilterd.socket virtnwfilterd-ro.socket virtnwfilterd-admin.socket
-  sudo systemctl mask <same unit list>
-  sudo systemctl enable --now libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
-  sudo systemctl start libvirtd.service
-  ```
-
-## 7. Masking the Modular Daemons Isn't Enough — the libvirt Client Still Defaults to `virtqemud-sock`
-
-After applying item #6's fix and re-running just the `rhel_kvm` role, `tasks/storage.yml`'s `community.libvirt.virt_pool` task failed anyway:
-
+## 5. RHEL 10: GPG Signature Error
+**Error:**
 ```
-Failed to connect socket to '/var/run/libvirt/virtqemud-sock': Connection refused
+Failed to validate GPG signature for libvirt-daemon-log-11.10.0-12.4.el10_2.x86_64:
+Public key for libvirt-daemon-log-...rpm is not installed
 ```
+**Cause:** RHEL 10.1+ packages are signed with an extra post-quantum key that an older 10.1 image does not have. Ansible's `rpm_key` cannot import it (known Red Hat issue RHEL-126844), and importing the image's own key file changed nothing.
+**Fix:** `tasks/packages.yml` runs `dnf update redhat-release` on RHEL 10 before installing packages (`rhel_kvm_update_redhat_release: true` in `vars/RedHat-10.yml`; `false` on RHEL 9). Tested on a fresh rollback: packages install.
+**Notes:**
+- `redhat-release` is a small package (OS identity files + Red Hat key files). Updating it changes the *reported* version (10.1 → 10.2), not the OS or kernel.
+- Why it works is not fully explained. It is confirmed by testing only.
+- Not the clock (item 9) and not a `failed_when` guard.
+- RHEL 9 once showed `package ... is already installed` (Transaction test error) on an already-provisioned host. Cause never found; it did not come back on a fresh host or a re-run.
 
-- **Root cause**: this has nothing to do with which systemd units are enabled/masked. The libvirt **client** library (used internally by `community.libvirt.virt_pool`/`virt_net`, and by plain `virsh`) resolves a bare `qemu:///system` connection to the modular per-driver socket (`virtqemud-sock`) by default whenever the modular daemon packages are installed on the host — it does not fall back to `libvirtd-sock` on its own. Masking `virtqemud` (item #6) removes the daemon behind that socket but does nothing to change which socket path the client tries first, turning a silent wrong-daemon problem into an outright connection failure.
-- **Rejected fix**: switching RHEL 9 to the modular daemon model (matching RHEL 10) so the client's default matches reality. This was tried and reverted — RHEL 9 is required to stay monolithic regardless of what the libvirt client would prefer by default. Don't repeat this.
-- **The actual fix**: keep RHEL 9 monolithic and remove the ambiguity instead. `vars/RedHat-9.yml` defines `rhel_kvm_libvirt_uri: "qemu+unix:///system?socket=/var/run/libvirt/libvirt-sock"` — an explicit, fully-qualified URI that points straight at `libvirtd`'s own socket, so the client has nothing left to auto-resolve. Every `community.libvirt.virt_pool`/`virt_net` task in `tasks/storage.yml` and `tasks/networks.yml` uses `uri: "{{ rhel_kvm_libvirt_uri }}"` instead of a hardcoded `qemu:///system`, and `tasks/users.yml` exports the same value as `LIBVIRT_DEFAULT_URI` in `/etc/profile.d/libvirt.sh` so interactive `virsh` sessions get it too. RHEL 10's `vars/RedHat-10.yml` sets `rhel_kvm_libvirt_uri: "qemu:///system"` — already unambiguous there since `libvirtd` doesn't exist to compete with.
-- **Manual remediation** on a host where `virtqemud` is masked and `libvirtd` is active-but-unreachable via the default URI:
-  ```bash
-  sudo virsh -c qemu+unix:///system?socket=/var/run/libvirt/libvirt-sock list --all
-  ```
-  If that connects, the daemon side is fine — it's just confirming the same fix Ansible now applies. No daemon-model change needed.
-- **Lesson**: don't assume systemd unit state alone determines which libvirt daemon a client actually reaches — the client library's own connection-URI resolution can have a fixed preference order that ignores admin intent entirely. When a hard requirement (monolithic on RHEL 9) conflicts with a client's default behavior, force the URI explicitly rather than changing the requirement to match the default.
+## 6. RHEL 9: Keep libvirt Simple
+**Decision:** RHEL 9 runs `libvirtd`. The role only enables and starts `libvirtd.service`. It does not mask the other libvirt daemons, does not manage sockets and does not pin a connection address (mentor advice: keep it simple).
+**Tried and removed:** masking the modular daemons, an explicit `qemu+unix` connection address, and a socket-ordering check. Each brought its own errors: `Failed to connect socket to '/var/run/libvirt/virtqemud-sock': Connection refused`, `Unable to start service libvirtd.socket: Job failed` (`already active, refusing`), and `Failed to connect socket to '/var/run/libvirt/libvirt-sock': No such file or directory`.
+**Why the two designs can not run together:** in the libvirt unit files the modular units say `Conflicts=libvirtd.service` (`virtqemud.service`, `virtnetworkd.service`, `virtstoraged.service`) and `Conflicts=libvirtd.socket` (their sockets). Starting a modular daemon therefore stops `libvirtd`. This explains the earlier symptom (libvirtd inactive while the modular daemons ran). It matters on RHEL 9 only if the OS enables the modular sockets by default, so that a client connection starts a modular daemon. On a fresh host, check before running the role: `systemctl is-enabled virtqemud.socket virtnetworkd.socket virtstoraged.socket`. If they are `disabled`, nothing conflicts. If `enabled`, `libvirtd` can be stopped and the modular units need to be masked again. (Unit files read on Fedora 44, libvirt 12.0; not yet read on RHEL.)
+**Check with:** `systemctl is-active libvirtd` and `virsh uri`.
 
-## 8. Verification Script Execution (Root Privileges)
+## 7. False Failures When Checking by Hand
+Run checks with `sudo`. Without root, `virsh` may query `qemu:///session` (empty) and `ss` / `firewall-cmd` hide details. Use `sudo virsh ...` or `virsh -c qemu:///system ...`.
 
-The custom python validation scripts (`verify_hypervisor.py` and `verify_cockpit.py`) generate "false failures" if executed as a standard user.
+## 8. dnf Error: `Cannot find a valid baseurl for repo: epel`
+**Error:**
+```
+Cannot find a valid baseurl for repo: epel
+```
+(at "Install core KVM hypervisor packages", although the host had internet)
+**Cause:** `/etc/yum.repos.d/epel.repo` contained only `[epel]` and `excludepkgs = zabbix*`. dnf refreshes *every* enabled repo, so it failed. The Zabbix role created that file: `ini_file` creates missing files by default.
+**Fix:** In `zabbix_agent_deploy/tasks/repo_setup.yml` (and its vendored copy): check the file exists first (`stat`), use `create: false`, and drop `ignore_errors`.
+**On an affected host:** `sudo rm /etc/yum.repos.d/epel.repo` (unless you want real EPEL; then move the stub aside and install `epel-release` with `--disablerepo=epel`).
 
-- **Networking**: `virsh net-info` and `virsh pool-list` query `qemu:///session` instead of `qemu:///system` if not run as root.
-- **Ports/Firewalls**: `ss -tulpn` and `firewall-cmd` hide bound process IDs and active zones from non-root users.
-- **Rule of Thumb**: Always execute acceptance tests with `sudo` to ensure they audit the enterprise `qemu:///system` daemon.
+## 9. Wrong Clock After Snapshot Rollback
+**Symptom:** `subscription-manager` warns the clock is skewed; `timedatectl` says `System clock synchronized: no`.
+**Cause:** A rollback restores the old time. chrony's default `makestep 1.0 3` only jumps the clock in its first 3 updates.
+**Fix:** `sudo chronyc makestep`, then check `timedatectl`.
+**Lab only:** set `makestep 1.0 -1` in `/etc/chrony.conf` so it always jumps (take a new snapshot after). CIS rewrites this to `1.0 3`; set `rhel9cis_chrony_server_makestep` / `rhel10cis_chrony_server_makestep` if it must survive hardening.
+
+## 10. Failed-Login Lockout (`pam_faillock`) Disabled on Purpose
+Set to `false` in `cis_rhel9_host.yml` / `cis_rhel10_host.yml`. All four rules are needed per OS, or lockout stays on for normal users:
+
+| OS | Rules |
+| :--- | :--- |
+| RHEL 9 | `rhel9cis_rule_5_3_2_2`, `5_3_3_1_1`, `5_3_3_1_2`, `5_3_3_1_3` |
+| RHEL 10 | `rhel10cis_rule_5_3_1_2`, `5_3_2_1_1`, `5_3_2_1_2`, `5_3_2_1_3` |
+
+## 11. `--tags` Ran Nothing
+**Symptom:** `--tags rhel_kvm` finished `ok=3 changed=0`; no role task ran.
+**Cause:** A tag on a dynamic `include_role` tags only the include, not the tasks inside.
+**Fix:** In `playbooks/main_playbook.yml`, add `apply: tags:` under `include_role` (done for both roles).
+**Use:** `ansible-playbook playbooks/main_playbook.yml --tags rhel_kvm --limit rhel9_hypervisor -K`
+
+## 12. `rhel_cockpit`: Settings That Did Nothing (Removed)
+Checked against `man cockpit.conf`. The role wrote options Cockpit ignores or that were already its defaults:
+
+| Removed | Why |
+| :--- | :--- |
+| `Port = 9090` | The port cannot be set in `cockpit.conf` (only via `cockpit.socket`); 9090 is the default anyway |
+| `Banner = <text>` (in `[WebService]`) | `Banner` is a `[Session]` option and must be a *file path*, so no banner was ever shown. Not needed. |
+| `IdleTimeout` under `[WebService]` | It only works under `[Session]` (that copy is kept) |
+| `AllowUnencrypted = false` | Already the default; it was tied to the wrong variable |
+| Remove `root` from `disallowed-users` | Loosened security for no stated need. Log in as an admin user. |
+| Remove `virt-manager` | Not shipped in RHEL 9/10, so the task did nothing |
+| `/etc/cockpit` directory task, `Reload firewalld` handler, `failed_when: false`, variables for constants (socket name/state), the `manage_config` switch | Redundant |
+| Firewalld task (`cockpit` service in the `public` zone) | Already allowed by default: `firewall-cmd --permanent --zone=public --list-services` = `cockpit dhcpv6-client ssh` on stock RHEL 9 and 10; CIS roles do not remove services |
+
+Kept: install `cockpit` + `cockpit-machines`, enable `cockpit.socket`, `[Session] IdleTimeout = 15` (CIS). Final check pending: after a full play with CIS, `https://<host>:9090` must still open from another VM; if not, the firewall task goes back.
+**After this change** the first re-run shows `changed` once on the config task (the file content changed) and restarts `cockpit.socket`. Hosts provisioned before keep `root` removed from `disallowed-users` until you restore it: `echo root | sudo tee -a /etc/cockpit/disallowed-users`.

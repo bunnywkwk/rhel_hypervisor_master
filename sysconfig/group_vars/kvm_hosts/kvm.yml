@@ -2,5 +2,8 @@
 # enabling the kvm on kvm host, overriding the false on the all.yml
 enable_kvm: true
 
-rhel_kvm_admin_users:
-  - "{{ ansible_user }}"
+rhel_kvm_storage_pools:
+  - name: default
+    path: /var/lib/libvirt/images
+  - name: vmdata
+    path: /var/lib/libvirt/vmdata

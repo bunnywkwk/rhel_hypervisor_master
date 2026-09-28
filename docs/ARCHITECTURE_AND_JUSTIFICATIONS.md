@@ -28,7 +28,7 @@ rhel_hypervisor_master/
 │   │   ├── all.yml                      # Global execution feature toggles
 │   │   ├── kvm_hosts/                   # Infrastructure role variables (split directory)
 │   │   │   ├── kvm.yml                  # Storage pool paths, bridge definitions, admin users
-│   │   │   └── cockpit.yml              # Session idle timeouts, banners, port configs
+│   │   │   └── cockpit.yml              # Turns Cockpit on (enable_cockpit)
 │   │   ├── cis_rhel9_host.yml           # Tailored CIS Level 1 overrides for RHEL 9
 │   │   └── cis_rhel10_host.yml          # Tailored CIS Level 1 overrides for RHEL 10
 │   │
@@ -66,11 +66,10 @@ To understand why this architecture is superior, the table below contrasts the l
 | :--- | :--- | :--- | :--- |
 | **Code Modularity** | Monolithic "God Playbook" containing 500+ mixed tasks for KVM, firewall, packages, and security. | Decoupled, standalone roles (`rhel_kvm`, `rhel_cockpit`) pulled via `requirements.yml`. | Eliminates code duplication; roles can be tested, versioned, and reused independently across different projects. |
 | **Variable Isolation** | Single monolithic `vars.yml` mixing storage paths, user passwords, and 200+ CIS security parameters. | Strict separation: `group_vars/kvm_hosts/` for infrastructure, `cis_rhelX_host.yml` for security. | Prevents accidental variable overrides; allows security auditors to inspect compliance settings without infrastructure clutter. |
-| **Multi-OS Libvirt Support** | Hardcoded `systemctl start libvirtd`, which immediately fails on RHEL 10. | Dynamic OS detection: enables required monolithic `libvirtd` on RHEL 9 (with an explicit `rhel_kvm_libvirt_uri` socket path so the libvirt client can't drift to the modular socket), modular sockets on RHEL 10, and masks the daemon set not in use on each. | Guarantees seamless cross-generation hypervisor management without manual playbook branching. |
+| **Multi-OS Libvirt Support** | Hardcoded `systemctl start libvirtd`, which immediately fails on RHEL 10. | Dynamic OS detection: enables the required monolithic `libvirtd` on RHEL 9, the modular sockets and services on RHEL 10, and masks the legacy `libvirtd` on RHEL 10. | Guarantees seamless cross-generation hypervisor management without manual playbook branching. |
 | **Web Console Architecture** | Desktop GUI installation (`virt-manager`, X11 packages, GNOME libraries) on the hypervisor. | Headless web console (`cockpit-machines`) managed via on-demand systemd socket activation (`cockpit.socket`). | Conserves 1.5+ GB of host RAM, reduces attack surface, eliminates X11 vulnerabilities, and satisfies CIS server profiles. |
 | **Network & Storage Management** | Ad-hoc `virsh` shell commands and brittle raw bash scripts without state tracking. | Native Ansible modules (`community.libvirt.virt_pool`, `virt_net`) using declarative Jinja2 XML templates. | Ensures complete idempotency (`changed=0`), robust error reporting, and reliable state convergence. |
 | **Security Hardening Model** | Custom, unverified bash scripts that break hypervisor bridges, block port 9090, and blacklists KVM drivers. | Official Ansible Lockdown CIS Level 1 roles with surgical variable overrides to protect virtualization. | Delivers verifiable enterprise compliance (CIS Level 1) while guaranteeing 100% operational hypervisor services. |
-| **Verification & Quality Assurance** | Manual manual checks (`virsh list`, pinging VMs) with no structured reporting. | Automated on-host Python acceptance scripts (`verify_hypervisor.py`, `verify_cockpit.py`) executed in Phase 3. | Generates automated, human-readable compliance reports directly inside the Ansible execution summary. |
 
 ---
 
@@ -91,15 +90,14 @@ The master playbook executes three distinct phases in strict order:
    └── rhel10_cis (on EL 10): Applies modern Level 1 controls with modular service protections
             │
             ▼
-[Phase 3: Post-Deployment Verification & Security]
-   ├── Automated acceptance test: /usr/local/bin/verify_hypervisor.py
-   ├── Automated acceptance test: /usr/local/bin/verify_cockpit.py
+[Phase 3: Post-Deployment Security]
+   ├── Warning MOTD for administrators
    └── Security credential expiry: chage -d 0 root
 ```
 
 **Technical Rationale:**
 - **Provision Before Hardening**: Infrastructure packages, services, network bridges (`virbr0`, `kvm_br0`), and sockets (`cockpit.socket`) must exist before the security benchmark runs. When CIS executes, its firewall and auditing tasks detect the running services and properly apply tailored firewall rules (`firewalld_services: [ssh, cockpit]`) and kernel parameter exceptions (`net.ipv4.ip_forward = 1`).
-- **Verify After Hardening**: Running the Python acceptance test suite in Phase 3 verifies that the system functions correctly *after* security remediation has been applied. If any CIS rule accidentally blocked a port or altered a permission, Phase 3 immediately catches the defect.
+- **Verify After Hardening**: Phase 3 runs after CIS, so the checks in the Verification & Acceptance Checklist below (daemon active, pools/networks up, `ip_forward = 1`, Cockpit reachable) must be run after hardening to confirm no CIS rule blocked a port or altered a permission.
 - **Security Root Expiry as Final Step**: Enforcing `chage -d 0 root` in Phase 3 guarantees that administrative access remains uninterrupted during automation, while ensuring that the hypervisor cannot be accessed post-deployment without a mandatory password reset.
 
 ### 2. Strict Variable Isolation & Precedence Mechanics
@@ -110,7 +108,7 @@ Enterprise security standards dictate that compliance baselines must be auditabl
 - **`all.yml`**: Defines global safety toggles (`enable_kvm: false`, `enable_cockpit: false`). By defaulting to `false`, any host mistakenly added to the inventory without a specific role assignment will not execute provisioning tasks.
 - **`kvm_hosts/`**: A multi-file directory containing role-specific infrastructure variables:
   - `kvm.yml`: Sets `enable_kvm: true`, defines storage pools, and configures bridge networking.
-  - `cockpit.yml`: Sets `enable_cockpit: true`, configures session idle timeouts, and sets login banners.
+  - `cockpit.yml`: Sets `enable_cockpit: true`.
 - **`cis_rhel9_host.yml` & `cis_rhel10_host.yml`**: Contain version-specific CIS Level 1 variable overrides.
 
 #### Variable Precedence in Action:
@@ -153,24 +151,6 @@ rhel9cis_whitelist_kernel_modules:
 ```
 This guarantees full compliance with CIS Level 1 while maintaining a fully functioning virtualization hypervisor.
 
-### 4. Dual-Tool Automated Acceptance Testing
-
-Instead of relying on basic shell return codes, Phase 3 executes two comprehensive Python validation tools directly on the target host:
-1. **`/usr/local/bin/verify_hypervisor.py`**:
-   - Inspects Libvirt daemon status (monolithic vs. modular).
-   - Validates kernel virtualization acceleration (`/dev/kvm`, `/dev/net/tun`, `/dev/vhost-net`).
-   - Verifies `net.ipv4.ip_forward` sysctl setting.
-   - Queries Libvirt storage pools (`/var/lib/libvirt/images`) and SELinux context (`virt_image_t`).
-   - Validates virtual bridge networks (`virbr0` and `kvm_br0`).
-2. **`/usr/local/bin/verify_cockpit.py`**:
-   - Confirms required package installation and absence of GUI tools (`virt-manager`).
-   - Validates systemd socket listening on TCP port 9090.
-   - Checks CIS session idle timeout (15 minutes) in `/etc/cockpit/cockpit.conf`.
-   - Validates firewalld permanent rules for the Cockpit service.
-   - Tests local HTTPS handshake on port 9090.
-
-Both scripts return exit code 0 on full success and non-zero on failure, outputting clean, emoji-free diagnostic tables directly into Ansible's terminal output.
-
 ---
 
 ## Architecture Flow Diagram
@@ -196,9 +176,9 @@ flowchart TD
     P2 -->|rhel9_cis + cis_rhel9_host.yml| H9
     P2 -->|rhel10_cis + cis_rhel10_host.yml| H10
 
-    Play -->|Phase 3: Validate| P3[Execute Acceptance Test Suite]
-    P3 -->|verify_hypervisor.py & verify_cockpit.py| H9
-    P3 -->|verify_hypervisor.py & verify_cockpit.py| H10
+    Play -->|Phase 3: Post-deploy| P3[MOTD + root password expiry]
+    P3 --> H9
+    P3 --> H10
 ```
 
 ---
@@ -210,13 +190,11 @@ flowchart TD
 | **Playbook Syntax** | `ansible-playbook --syntax-check playbooks/main_playbook.yml` | Exit code `0` (Syntax OK) |
 | **Galaxy Dependencies** | `ansible-galaxy install -r requirements.yml -p roles/ --force` | All pinned roles and collections successfully pulled |
 | **Idempotency** | Second consecutive run of `playbooks/main_playbook.yml` | `changed=0 failed=0` across all hosts |
-| **Hypervisor Health** | SSH -> `/usr/local/bin/verify_hypervisor.py` | 100% PASS on daemons, pools, networks, and sysctl |
-| **Cockpit Health** | SSH -> `/usr/local/bin/verify_cockpit.py` | 100% PASS on port 9090, socket, timeout, and HTTPS |
-| **Web Console Reachability** | Browser -> `https://<hypervisor-ip>:9090` | Hardened security banner and login screen displayed |
+| **Hypervisor Health** | On the host: `systemctl is-active libvirtd` (RHEL 9) / `virtqemud.socket` (RHEL 10), `virsh pool-list --all`, `virsh net-list --all`, `sysctl net.ipv4.ip_forward` | Daemon active, pools/networks active + autostart, `ip_forward = 1` |
+| **Cockpit Health** | On the host: `systemctl is-active cockpit.socket`, `ss -tulpn \| grep 9090`, `firewall-cmd --list-services` | Socket active, 9090 listening, `cockpit` service allowed |
+| **Web Console Reachability** | Browser -> `https://<hypervisor-ip>:9090` | Login screen displayed; idle sessions log out after 15 minutes |
 | **Root Credential Security** | SSH -> `ssh root@<hypervisor-ip>` | Immediate prompt: "You are required to change your password" |
 
 [SCREENSHOT: Execution output of main_playbook.yml demonstrating 3-phase completion]
-[SCREENSHOT: Terminal output of verify_hypervisor.py showing all green checks]
-[SCREENSHOT: Terminal output of verify_cockpit.py showing socket and firewall verification]
 [SCREENSHOT: Cockpit web console running on port 9090 with active VM management]
 
